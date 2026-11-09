@@ -47,10 +47,43 @@ def ingest_data():
         logger.error("Dataset is empty.")
         sys.exit(1)
 
-    # create embeddings
-    logger.info("Creating embeddings...")
-    embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-2-preview")
-    vector = embeddings.embed_documents(ids = ["issue","reply"],documents = [df["customer_issue"].tolist(),df["reference_reply"].tolist()])
+    # 1. Convert DataFrame to LangChain Documents
+    logger.info("Converting DataFrame to LangChain Documents...")
+    documents = []
+    for _, row in df.iterrows():
+        doc = Document(
+            page_content=row['customer_issue'],
+            metadata={"reference_reply":row['reference_reply']}
+        )
+        documents.append(doc)
+
+    # 2. Create embeddings model
+    logger.info("Creating embeddings model...")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
+
+    # 3. Ingest documents into Chroma
+    logger.info("Ingesting documents into Chroma...")
+    batch_size = 100
+    vectorstore= None
+    for i in tqdm(range(0, len(documents), batch_size),desc="Ingesting Documents"):
+        batch = documents[i:i + batch_size]
+        #  Create DB on the first batch, then add to it
+        if vectorstore is None:
+            vectorstore = Chroma.from_documents(
+                documents=batch,
+                embedding=embeddings,
+                persist_directory=str(CHROMA_PATH),
+                collection_name=COLLECTION_NAME
+            )
+        else:
+            vectorstore.add_documents(batch)
+
+    logger.info(f"Successfully ingested {len(documents)} documents into Chroma at {CHROMA_PATH}.")
+
+if __name__ == "__main__":
+    ingest_data()
+    
+
 
 
     
